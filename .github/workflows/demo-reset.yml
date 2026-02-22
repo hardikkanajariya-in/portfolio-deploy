@@ -94,7 +94,14 @@ jobs:
       - name: Pull Vercel Environment
         if: steps.params.outputs.seed_only != 'true'
         working-directory: ./app
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+          # Ensure Next.js framework is set
+          curl -s -X PATCH "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"framework":"nextjs","buildCommand":"npx prisma generate && next build","outputDirectory":".next"}' || true
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Project
         if: steps.params.outputs.seed_only != 'true'

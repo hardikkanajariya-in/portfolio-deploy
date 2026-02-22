@@ -111,6 +111,21 @@ jobs:
         working-directory: ./app
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
+      - name: Ensure Next.js framework is configured
+        working-directory: ./app
+        run: |
+          # Patch the project settings to ensure Next.js framework is set
+          if [ -f ".vercel/project.json" ]; then
+            cat .vercel/project.json
+          fi
+          # Set framework via Vercel API
+          curl -s -X PATCH "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}" \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"framework":"nextjs","buildCommand":"npx prisma generate && next build","outputDirectory":".next"}' || true
+          # Re-pull after update
+          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
       - name: Build Project
         working-directory: ./app
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
