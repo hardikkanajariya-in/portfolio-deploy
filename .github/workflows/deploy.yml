@@ -79,7 +79,6 @@ jobs:
         working-directory: ./app
         run: |
           echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
-          echo "DIRECT_URL=${{ secrets.DIRECT_URL }}" >> .env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
           echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
           echo "DEMO_MODE=true" >> .env
@@ -99,7 +98,6 @@ jobs:
           echo "✅ Database reset and seeded"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
           DEMO_MODE: "true"
 
       - name: Run Migrations Only
@@ -108,7 +106,6 @@ jobs:
         run: npx prisma migrate deploy
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
 
       - name: Pull Vercel Environment
         working-directory: ./app
@@ -119,7 +116,6 @@ jobs:
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          DIRECT_URL: ${{ secrets.DIRECT_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           DEMO_MODE: "true"
