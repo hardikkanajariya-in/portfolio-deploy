@@ -1,0 +1,8 @@
+# This repo only contains GitHub Actions workflows for deploying
+# the private portfolio repo to Vercel.
+#
+# No source code lives here.
+
+node_modules/
+.vercel/
+.env*

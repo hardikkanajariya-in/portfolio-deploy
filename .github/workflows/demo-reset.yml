@@ -1,0 +1,143 @@
+name: Reset Demo Database
+
+on:
+  # Run every 8 hours — reset demo database and redeploy
+  schedule:
+    - cron: "0 */8 * * *"
+
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to deploy from private repo"
+        required: true
+        default: "develop"
+        type: string
+      seed_only:
+        description: "Only reset DB + seed (skip build/deploy)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  reset-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Set parameters
+        id: params
+        run: |
+          BRANCH="${{ github.event.inputs.branch || 'develop' }}"
+          SEED_ONLY="${{ github.event.inputs.seed_only || 'false' }}"
+          echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
+          echo "seed_only=${SEED_ONLY}" >> $GITHUB_OUTPUT
+          echo "🔄 Demo reset — branch: ${BRANCH}, seed_only: ${SEED_ONLY}"
+
+      - name: Clone private repository
+        run: |
+          git clone --depth 1 --branch ${{ steps.params.outputs.branch }} \
+            https://x-access-token:${{ secrets.PRIVATE_REPO_PAT }}@github.com/hardikkanajariya-in/portfolio.git app
+        env:
+          GIT_TERMINAL_PROMPT: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: app/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('app/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        working-directory: ./app
+        run: npm install
+
+      - name: Create .env for demo
+        working-directory: ./app
+        run: |
+          echo "DATABASE_URL=${{ secrets.DEMO_DATABASE_URL }}" > .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
+          echo "DEMO_MODE=true" >> .env
+
+      - name: Generate Prisma Client
+        working-directory: ./app
+        run: npx prisma generate
+
+      - name: Reset Database
+        working-directory: ./app
+        run: |
+          echo "🗑️ Resetting demo database..."
+          npx prisma migrate reset --force
+          echo "✅ Database reset and migrations applied"
+        env:
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+
+      - name: Seed Demo Data
+        working-directory: ./app
+        run: |
+          echo "🌱 Seeding demo data..."
+          npx tsx prisma/seeders/index.ts
+          echo "✅ Demo data seeded successfully"
+        env:
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          DEMO_MODE: "true"
+
+      # --- Build & Deploy (skip if seed_only) ---
+
+      - name: Install Vercel CLI
+        if: steps.params.outputs.seed_only != 'true'
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel Environment
+        if: steps.params.outputs.seed_only != 'true'
+        working-directory: ./app
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build Project
+        if: steps.params.outputs.seed_only != 'true'
+        working-directory: ./app
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          DEMO_MODE: "true"
+
+      - name: Deploy to Vercel
+        if: steps.params.outputs.seed_only != 'true'
+        id: deploy
+        working-directory: ./app
+        run: |
+          URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=${URL}" >> $GITHUB_OUTPUT
+          echo "🚀 Demo deployed to: ${URL}"
+
+      - name: Reset Summary
+        run: |
+          echo "## Demo Reset Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ steps.params.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **DB Reset** | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Seeding** | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deploy** | ${{ steps.params.outputs.seed_only == 'true' && '⏭️ Skipped' || '✅ Complete' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **URL** | ${{ steps.deploy.outputs.url || 'N/A (seed only)' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf app
