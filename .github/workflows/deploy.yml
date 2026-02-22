@@ -14,7 +14,7 @@ on:
       fresh_database:
         description: "Reset database and run seeders"
         required: false
-        default: true
+        default: false
         type: boolean
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             BRANCH="${{ github.event.client_payload.branch }}"
-            FRESH_DB="true"
+            FRESH_DB="false"
           else
             BRANCH="${{ github.event.inputs.branch }}"
             FRESH_DB="${{ github.event.inputs.fresh_database }}"
