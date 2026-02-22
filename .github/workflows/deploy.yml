@@ -1,31 +1,20 @@
-name: Deploy to Vercel
+name: Deploy Demo to Vercel
 
 on:
-  # Triggered from private repo via repository_dispatch
   repository_dispatch:
     types: [deploy]
 
-  # Manual trigger
   workflow_dispatch:
     inputs:
       branch:
         description: "Branch to deploy from private repo"
         required: true
-        default: "main"
+        default: "deploy"
         type: string
-      environment:
-        description: "Deploy environment"
-        required: true
-        default: "production"
-        type: choice
-        options:
-          - production
-          - preview
-          - demo
       fresh_database:
-        description: "Reset database and run seeders (for demo)"
+        description: "Reset database and run seeders"
         required: false
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -41,43 +30,23 @@ jobs:
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
     steps:
-      - name: Determine deploy parameters
+      - name: Determine parameters
         id: params
         run: |
-          # Support both repository_dispatch and workflow_dispatch
           if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
             BRANCH="${{ github.event.client_payload.branch }}"
-            ENVIRONMENT="${{ github.event.client_payload.environment }}"
-            FRESH_DB="${{ github.event.client_payload.fresh_database }}"
+            FRESH_DB="true"
           else
             BRANCH="${{ github.event.inputs.branch }}"
-            ENVIRONMENT="${{ github.event.inputs.environment }}"
             FRESH_DB="${{ github.event.inputs.fresh_database }}"
           fi
-          
-          # Defaults
-          BRANCH="${BRANCH:-main}"
-          ENVIRONMENT="${ENVIRONMENT:-production}"
-          FRESH_DB="${FRESH_DB:-false}"
-          
-          # Demo always uses fresh database unless explicitly disabled
-          if [ "$ENVIRONMENT" = "demo" ] && [ "$FRESH_DB" = "" ]; then
-            FRESH_DB="true"
-          fi
 
-          # Determine if this is a production deploy (demo uses preview environment on Vercel)
-          IS_PROD="false"
-          if [ "$ENVIRONMENT" = "production" ]; then
-            IS_PROD="true"
-          fi
+          BRANCH="${BRANCH:-deploy}"
+          FRESH_DB="${FRESH_DB:-true}"
 
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
-          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
-          echo "is_production=${IS_PROD}" >> $GITHUB_OUTPUT
           echo "fresh_database=${FRESH_DB}" >> $GITHUB_OUTPUT
-          echo "is_demo=$( [ \"$ENVIRONMENT\" = 'demo' ] && echo 'true' || echo 'false' )" >> $GITHUB_OUTPUT
-          
-          echo "📦 Deploying branch: ${BRANCH} to ${ENVIRONMENT} (fresh_db: ${FRESH_DB})"
+          echo "📦 Demo deploy — branch: ${BRANCH}, fresh_db: ${FRESH_DB}"
 
       - name: Clone private repository
         run: |
@@ -106,97 +75,66 @@ jobs:
         working-directory: ./app
         run: npm install
 
-      - name: Select database and create .env
+      - name: Create .env
         working-directory: ./app
         run: |
-          if [ "${{ steps.params.outputs.is_demo }}" = "true" ]; then
-            echo "Using DEMO database..."
-            echo "DATABASE_URL=${{ secrets.DEMO_DATABASE_URL }}" > .env
-            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
-            echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
-            echo "DEMO_MODE=true" >> .env
-          else
-            echo "Using PRODUCTION database..."
-            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
-            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
-            echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
-          fi
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
+          echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
+          echo "DEMO_MODE=true" >> .env
 
       - name: Generate Prisma Client
         working-directory: ./app
         run: npx prisma generate
 
-      - name: Reset Demo Database (if fresh)
+      - name: Reset Database & Seed
         if: steps.params.outputs.fresh_database == 'true'
         working-directory: ./app
         run: |
-          echo "🗑️ Resetting database..."
+          echo "🗑️ Resetting demo database..."
           npx prisma migrate reset --force
-          echo "✅ Database reset complete"
+          echo "🌱 Seeding demo data..."
+          npx tsx prisma/seeders/index.ts
+          echo "✅ Database reset and seeded"
         env:
-          DATABASE_URL: ${{ steps.params.outputs.is_demo == 'true' && secrets.DEMO_DATABASE_URL || secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DEMO_MODE: "true"
 
-      - name: Run Database Migrations
+      - name: Run Migrations Only
         if: steps.params.outputs.fresh_database != 'true'
         working-directory: ./app
         run: npx prisma migrate deploy
         env:
-          DATABASE_URL: ${{ steps.params.outputs.is_demo == 'true' && secrets.DEMO_DATABASE_URL || secrets.DATABASE_URL }}
-
-      - name: Seed Demo Data
-        if: steps.params.outputs.fresh_database == 'true'
-        working-directory: ./app
-        run: |
-          echo "🌱 Seeding demo data..."
-          npx tsx prisma/seeders/index.ts
-          echo "✅ Seeding complete"
-        env:
-          DATABASE_URL: ${{ steps.params.outputs.is_demo == 'true' && secrets.DEMO_DATABASE_URL || secrets.DATABASE_URL }}
-          DEMO_MODE: "true"
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Pull Vercel Environment
         working-directory: ./app
-        run: |
-          if [ "${{ steps.params.outputs.is_production }}" = "true" ]; then
-            vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-          else
-            vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-          fi
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Project
         working-directory: ./app
-        run: |
-          if [ "${{ steps.params.outputs.is_production }}" = "true" ]; then
-            vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-          else
-            vercel build --token=${{ secrets.VERCEL_TOKEN }}
-          fi
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
-          DATABASE_URL: ${{ steps.params.outputs.is_demo == 'true' && secrets.DEMO_DATABASE_URL || secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          DEMO_MODE: ${{ steps.params.outputs.is_demo }}
+          DEMO_MODE: "true"
 
       - name: Deploy to Vercel
         id: deploy
         working-directory: ./app
         run: |
-          if [ "${{ steps.params.outputs.is_production }}" = "true" ]; then
-            URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
-          else
-            URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
-          fi
+          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
           echo "url=${URL}" >> $GITHUB_OUTPUT
-          echo "🚀 Deployed to: ${URL}"
+          echo "🚀 Demo deployed to: ${URL}"
 
       - name: Deployment Summary
         run: |
-          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Demo Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| **Branch** | \`${{ steps.params.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Environment** | \`${{ steps.params.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Fresh DB** | \`${{ steps.params.outputs.fresh_database }}\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **URL** | ${{ steps.deploy.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Status** | ✅ Success |" >> $GITHUB_STEP_SUMMARY

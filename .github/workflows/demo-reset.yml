@@ -1,17 +1,15 @@
 name: Reset Demo Database
 
 on:
-  # Run every 8 hours — reset demo database and redeploy
   schedule:
     - cron: "0 */8 * * *"
 
-  # Manual trigger
   workflow_dispatch:
     inputs:
       branch:
-        description: "Branch to deploy from private repo"
+        description: "Branch to use from private repo"
         required: true
-        default: "develop"
+        default: "deploy"
         type: string
       seed_only:
         description: "Only reset DB + seed (skip build/deploy)"
@@ -35,7 +33,7 @@ jobs:
       - name: Set parameters
         id: params
         run: |
-          BRANCH="${{ github.event.inputs.branch || 'develop' }}"
+          BRANCH="${{ github.event.inputs.branch || 'deploy' }}"
           SEED_ONLY="${{ github.event.inputs.seed_only || 'false' }}"
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
           echo "seed_only=${SEED_ONLY}" >> $GITHUB_OUTPUT
@@ -65,10 +63,10 @@ jobs:
         working-directory: ./app
         run: npm install
 
-      - name: Create .env for demo
+      - name: Create .env
         working-directory: ./app
         run: |
-          echo "DATABASE_URL=${{ secrets.DEMO_DATABASE_URL }}" > .env
+          echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
           echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
           echo "DEMO_MODE=true" >> .env
@@ -77,26 +75,17 @@ jobs:
         working-directory: ./app
         run: npx prisma generate
 
-      - name: Reset Database
+      - name: Reset Database & Seed
         working-directory: ./app
         run: |
           echo "🗑️ Resetting demo database..."
           npx prisma migrate reset --force
-          echo "✅ Database reset and migrations applied"
-        env:
-          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
-
-      - name: Seed Demo Data
-        working-directory: ./app
-        run: |
           echo "🌱 Seeding demo data..."
           npx tsx prisma/seeders/index.ts
-          echo "✅ Demo data seeded successfully"
+          echo "✅ Database reset and seeded"
         env:
-          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DEMO_MODE: "true"
-
-      # --- Build & Deploy (skip if seed_only) ---
 
       - name: Install Vercel CLI
         if: steps.params.outputs.seed_only != 'true'
@@ -105,14 +94,14 @@ jobs:
       - name: Pull Vercel Environment
         if: steps.params.outputs.seed_only != 'true'
         working-directory: ./app
-        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Project
         if: steps.params.outputs.seed_only != 'true'
         working-directory: ./app
-        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
-          DATABASE_URL: ${{ secrets.DEMO_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           DEMO_MODE: "true"
@@ -122,12 +111,25 @@ jobs:
         id: deploy
         working-directory: ./app
         run: |
-          URL=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
           echo "url=${URL}" >> $GITHUB_OUTPUT
           echo "🚀 Demo deployed to: ${URL}"
 
       - name: Reset Summary
         run: |
+          echo "## Demo Reset Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Branch** | \`${{ steps.params.outputs.branch }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **DB Reset** | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Seeding** | ✅ Complete |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Deploy** | ${{ steps.params.outputs.seed_only == 'true' && '⏭️ Skipped' || '✅ Complete' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **URL** | ${{ steps.deploy.outputs.url || 'N/A (seed only)' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf app
           echo "## Demo Reset Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Detail | Value |" >> $GITHUB_STEP_SUMMARY
