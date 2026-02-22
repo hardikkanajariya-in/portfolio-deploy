@@ -79,6 +79,7 @@ jobs:
         working-directory: ./app
         run: |
           echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env
+          echo "DIRECT_URL=${{ secrets.DIRECT_URL }}" >> .env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> .env
           echo "CRON_SECRET=${{ secrets.CRON_SECRET }}" >> .env
           echo "DEMO_MODE=true" >> .env
@@ -98,6 +99,7 @@ jobs:
           echo "✅ Database reset and seeded"
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
           DEMO_MODE: "true"
 
       - name: Run Migrations Only
@@ -106,31 +108,18 @@ jobs:
         run: npx prisma migrate deploy
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
 
       - name: Pull Vercel Environment
         working-directory: ./app
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-
-      - name: Ensure Next.js framework is configured
-        working-directory: ./app
-        run: |
-          # Patch the project settings to ensure Next.js framework is set
-          if [ -f ".vercel/project.json" ]; then
-            cat .vercel/project.json
-          fi
-          # Set framework via Vercel API
-          curl -s -X PATCH "https://api.vercel.com/v9/projects/${{ secrets.VERCEL_PROJECT_ID }}" \
-            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
-            -H "Content-Type: application/json" \
-            -d '{"framework":"nextjs","buildCommand":"npx prisma generate && next build","outputDirectory":".next"}' || true
-          # Re-pull after update
-          vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
 
       - name: Build Project
         working-directory: ./app
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           DEMO_MODE: "true"
