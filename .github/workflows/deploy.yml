@@ -9,7 +9,7 @@ on:
       branch:
         description: "Branch to deploy from private repo"
         required: true
-        default: "deploy"
+        default: "develop"
         type: string
       fresh_database:
         description: "Reset database and run seeders"
@@ -41,7 +41,7 @@ jobs:
             FRESH_DB="${{ github.event.inputs.fresh_database }}"
           fi
 
-          BRANCH="${BRANCH:-deploy}"
+          BRANCH="${BRANCH:-develop}"
           FRESH_DB="${FRESH_DB:-true}"
 
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT

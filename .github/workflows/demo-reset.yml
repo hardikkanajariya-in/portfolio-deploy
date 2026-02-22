@@ -9,7 +9,7 @@ on:
       branch:
         description: "Branch to use from private repo"
         required: true
-        default: "deploy"
+        default: "develop"
         type: string
       seed_only:
         description: "Only reset DB + seed (skip build/deploy)"
@@ -33,7 +33,7 @@ jobs:
       - name: Set parameters
         id: params
         run: |
-          BRANCH="${{ github.event.inputs.branch || 'deploy' }}"
+          BRANCH="${{ github.event.inputs.branch || 'develop' }}"
           SEED_ONLY="${{ github.event.inputs.seed_only || 'false' }}"
           echo "branch=${BRANCH}" >> $GITHUB_OUTPUT
           echo "seed_only=${SEED_ONLY}" >> $GITHUB_OUTPUT
